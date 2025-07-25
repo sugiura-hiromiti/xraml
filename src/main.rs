@@ -1,19 +1,25 @@
 use anyhow::Result as Rslt;
 use xraml::csv::read_as_csv;
-use xraml::parse_from_path;
-use xraml::raml::get_all_column_metadata;
+use xraml::raml::create_raml_metadata_stream;
+
+const INDIVIDUAL_CONTRACT_OBJ_PATH: &str = "data/IndividualContract__c.object";
+const SOEC_OBJ_PATH: &str = "data/SalesOrderEmploymentConditions__c.object";
+const IC_RAML: &str = "individual_contract.raml";
+const SOEC_RAML: &str = "sales_order_employment_conditions.raml";
+const IC_CSV: &str = "data/kobetu.csv";
+const SOEC_CSV: &str = "data/keiyaku.csv";
 
 fn main() -> Rslt<(),> {
-	let content = read_as_csv(
-		"/Users/hiromichi.sugiura/Downloads/ws/xraml/data/columns_of_individual_contract.csv",
-	)?;
+	let content = vec![
+		(read_as_csv(IC_CSV,)?, INDIVIDUAL_CONTRACT_OBJ_PATH, IC_RAML,),
+		(read_as_csv(SOEC_CSV,)?, SOEC_OBJ_PATH, SOEC_RAML,),
+	];
 
-	let condition = |v: Vec<String,>| {
-		let is_required = v[content.target_columns[1]].contains("〇",);
-		if is_required { Some(v[content.target_columns[0]].clone(),) } else { None }
-	};
+	for (csv, obj_path, raml_file,) in content {
+		let acquired_rows = csv.acquire_required_rows_name();
+		create_raml_metadata_stream(obj_path,)?
+			.create_raml_file_minimal(acquired_rows, raml_file.to_string(),)?;
+	}
 
-	let rslt: Vec<String,> = content.filter_map(condition,);
-	println!("{rslt:#?}");
 	Ok((),)
 }
