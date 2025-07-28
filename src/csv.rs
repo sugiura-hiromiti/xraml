@@ -26,7 +26,7 @@ impl Csv {
 
 	pub fn acquire_required_rows_name(&self,) -> Vec<String,> {
 		let condition = |v: Vec<String,>| {
-			let is_required = v[self.target_columns[1]].contains("〇",);
+			let is_required = v[self.target_columns[1]..].iter().any(|s| s.contains("〇",),);
 			if is_required { Some(v[self.target_columns[0]].clone(),) } else { None }
 		};
 
@@ -80,27 +80,19 @@ impl Iterator for CsvRows {
 	type Item = Vec<String,>;
 
 	fn next(&mut self,) -> Option<Self::Item,> {
-		let mut current_row = self.current_row + 1;
+		self.current_row += 1;
 
-		if current_row >= self.data.len() {
+		if self.current_row >= self.data.len() {
 			return None;
 		}
 
-		while let row = &self.data[current_row]
-			&& !row.starts_with(',',)
-		{
-			current_row += 1;
-			if current_row == self.data.len() {
-				return None;
-			}
+		let next_row: Vec<String,> =
+			self.data[self.current_row].split(',',).map(|s| s.to_string(),).collect();
+
+		if next_row[0] != "" || next_row[1].parse::<i32>().is_err() {
+			return self.next();
 		}
 
-		let next_row = self.data[self.current_row..current_row]
-			.join(" ",)
-			.split(',',)
-			.map(|s| s.to_string(),)
-			.collect();
-		self.current_row = current_row;
 		Some(next_row,)
 	}
 }
@@ -137,12 +129,23 @@ pub fn read_as_csv(path: impl AsRef<Path,>,) -> Rslt<Csv,> {
 		},)
 		.collect();
 
-	let data = post
-		.lines()
-		.skip(header_count,)
-		.skip_while(|s| s.split_once(',',).unwrap().0 != "",)
-		.filter_map(|s| s.contains(|c| c != ',',).then_some(s.to_string(),),)
-		.collect();
+	println!("target_columns: {target_columns:?}");
+
+	let mut data = Vec::with_capacity(400,);
+	let lines =
+		post.lines().skip(header_count,).skip_while(|s| s.split_once(',',).unwrap().0 != "",);
+	// .filter_map(|s| s.contains(|c| c != ',',).then_some(s.to_string(),),)
+	// .collect();
+
+	let mut row = "".to_string();
+	for line in lines {
+		if line.starts_with(',',) {
+			data.push(row,);
+			row = line.to_string();
+		} else {
+			row.push_str(line,);
+		}
+	}
 	let rows = CsvRows { data, current_row: 0, };
 
 	Ok(Csv { rows, target_columns, },)
@@ -182,10 +185,15 @@ pub fn write_proterty_file(content: &String,) -> Rslt<(),> {
 mod tests {
 	use super::*;
 
+	const KOBETU_CSV_PATH: &str = "/Users/hiromichi.sugiura/Downloads/ws/xraml/data/kobetu.csv";
+	const KEIYAKU_CSV_PATH: &str = "/Users/hiromichi.sugiura/Downloads/ws/xraml/data/keiyaku.csv";
+
 	fn csv_template() -> Rslt<Csv,> {
-		read_as_csv(
-			"/Users/hiromichi.sugiura/Downloads/ws/xraml/data/columns_of_individual_contract.csv",
-		)
+		read_as_csv(KOBETU_CSV_PATH,)
+	}
+
+	fn keiyaku_csv_template() -> Rslt<Csv,> {
+		read_as_csv(KEIYAKU_CSV_PATH,)
 	}
 
 	#[test]
@@ -198,25 +206,23 @@ mod tests {
 	fn test_csv_iter() -> Rslt<(),> {
 		let csv = csv_template()?;
 
-		let voids: Vec<String,> = csv.rows.into_iter().map(|r| r[0].clone(),).collect();
-		println!("{voids:#?}");
-		assert_eq!(voids.len(), 390);
+		let voids: Vec<Vec<String,>,> = csv.rows.into_iter().collect();
+		assert_eq!(voids.len(), 347, "{voids:#?}");
 
-		voids.iter().for_each(|s| assert!(s.is_empty()),);
+		voids.iter().for_each(|s| assert!(!s.is_empty()),);
 		Ok((),)
 	}
 
 	#[test]
-	fn test_filter_map() -> Rslt<(),> {
+	fn test_acquire_required() -> Rslt<(),> {
 		let csv = csv_template()?;
 
-		let condition = |v: Vec<String,>| {
-			let is_required = v[csv.target_columns[1]].contains("〇",);
-			if is_required { Some(v[csv.target_columns[0]].clone(),) } else { None }
-		};
+		let rslt: Vec<String,> = csv.acquire_required_rows_name();
+		assert_eq!(rslt.len(), 104);
 
-		let rslt: Vec<String,> = csv.filter_map(condition,);
-		assert_eq!(rslt.len(), 82);
+		let ano = keiyaku_csv_template()?;
+		let rslt: Vec<String,> = ano.acquire_required_rows_name();
+		assert_eq!(rslt.len(), 77);
 		Ok((),)
 	}
 
